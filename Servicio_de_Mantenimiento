@@ -1,0 +1,200 @@
+CREATE DATABASE ServiciosdeMantenimiento
+USE ServiciosdeMantenimiento
+
+CREATE SCHEMA Comercial
+--para gestionar clientes, proveedores, compras y domicilios.
+CREATE SCHEMA Operativo
+--para gestionar servicios, trabajadores, materiales y las relaciones entre ellos.
+
+CREATE TABLE Comercial.Cliente
+(
+	idCliente BIGINT IDENTITY(1,1) NOT NULL,
+	RFCCliente VARCHAR(20) NOT NULL,
+	nombreCliente VARCHAR(100) NOT NULL,
+	telefonoCliente VARCHAR(10) NOT NULL,
+	emailCliente VARCHAR(200) NOT NULL,
+
+	CONSTRAINT PK_CLIENTE PRIMARY KEY (idCliente)
+)
+
+CREATE TABLE Comercial.DomicilioCliente
+(
+	idDomicilio BIGINT IDENTITY(1,1) NOT NULL,
+	idCliente BIGINT NOT NULL,
+	domicilioCliente VARCHAR(200) NOT NULL,
+
+	CONSTRAINT PK_DOMICILIO PRIMARY KEY (idDomicilio),
+	CONSTRAINT FK_CLIENTE01 FOREIGN KEY(idCliente)
+	REFERENCES Comercial.Cliente(idCliente)
+)
+
+CREATE TABLE Comercial.Proveedor
+(
+	idProveedor BIGINT IDENTITY(1,1) NOT NULL,
+	nombreProveedor VARCHAR(200) NOT NULL,
+	telefonoProveedor VARCHAR(10) NOT NULL,
+	emailProveedor VARCHAR(200) NOT NULL,
+
+	CONSTRAINT PK_PROVEEDOR PRIMARY KEY (idProveedor)
+)
+
+CREATE TABLE Comercial.Compra
+(
+	idCompra BIGINT IDENTITY(1,1) NOT NULL,
+	idProveedor BIGINT NOT NULL,
+	fechaCompra DATE NOT NULL,
+	totalCompra DECIMAL NOT NULL,
+
+	CONSTRAINT PK_COMPRA PRIMARY KEY (idCompra),
+	CONSTRAINT FK_PROVEEDOR01 FOREIGN KEY(idProveedor)
+	REFERENCES Comercial.Proveedor(idProveedor)
+)
+
+CREATE TABLE Comercial.DetalleCompra
+(
+	idCompra BIGINT NOT NULL,
+	idMaterial BIGINT NOT NULL,
+	cantidad INT NOT NULL,
+	subtotal DECIMAL NOT NULL,
+
+	CONSTRAINT FK_COMPRA FOREIGN KEY(idCompra)
+	REFERENCES Comercial.Compra(idCompra),
+	CONSTRAINT FK_MATERIAL FOREIGN KEY(idMaterial)
+	REFERENCES Operativo.Material(idMaterial)
+)
+
+CREATE TABLE Operativo.Servicio
+(
+	idServicio BIGINT IDENTITY(1,1) NOT NULL,
+	idDomicilio BIGINT NOT NULL,
+	fechaCotizacion DATE NOT NULL,
+	fechaInicio DATE NOT NULL,
+	fechaFinal DATE NOT NULL,
+	duracion INT NOT NULL,
+	costoFinal DECIMAL NOT NULL,
+
+	CONSTRAINT PK_SERVICIO PRIMARY KEY (idServicio),
+	CONSTRAINT FK_DOMICILIO FOREIGN KEY (idDomicilio)
+	REFERENCES Comercial.DomicilioCliente (idDomicilio)
+)	
+
+CREATE TABLE Operativo.Material
+(
+	idMaterial BIGINT IDENTITY(1,1) NOT NULL,
+	nombreMaterial VARCHAR(100) NOT NULL,
+	tipoMaterial VARCHAR(50) NOT NULL,
+	precioMaterial MONEY NOT NULL,
+	existencia INT NOT NULL,
+
+	CONSTRAINT FK_MATERIAL PRIMARY KEY (idMaterial)
+)
+
+DROP TABLE Operativo.Material
+
+ALTER TABLE Operativo.Material ADD CONSTRAINT UQ_NOMBREMATERIALUNICO UNIQUE (nombreMaterial);
+
+CREATE TABLE Operativo.MaterialXServicio
+(
+	idServicio BIGINT NOT NULL,
+	idMaterial BIGINT NOT NULL,
+	cantMaterial INT NOT NULL,
+	subtotalMaterial DECIMAL NOT NULL,
+
+	CONSTRAINT FK_SERVICIO FOREIGN KEY (idServicio)
+	REFERENCES Operativo.Servicio (idServicio),
+	CONSTRAINT FK_MATERIAL2 FOREIGN KEY (idMaterial)
+	REFERENCES Operativo.Material (idMaterial)
+)
+
+CREATE TABLE Operativo.Trabajador 
+(
+	idTrabajador BIGINT IDENTITY (1,1) NOT NULL,
+	RFCTrabajador VARCHAR(13) NOT NULL,
+	nombreTrabajador VARCHAR(100) NOT NULL,
+	telefonoTrabajador VARCHAR(10) NOT NULL,
+	emailTrabajador VARCHAR(200) NOT NULL
+
+	CONSTRAINT PK_TRABAJADOR PRIMARY KEY (idTrabajador)
+)
+
+CREATE TABLE Operativo.DetalleTrabajador 
+(
+	idTrabajador BIGINT IDENTITY (1,1) NOT NULL,
+	profesion VARCHAR(100) NOT NULL,
+	costoBase  MONEY NOT NULL
+
+	CONSTRAINT FK_TRABAJADOR FOREIGN KEY (idTrabajador) 
+	REFERENCES Operativo.Trabajador(idTrabajador)
+)
+
+
+CREATE TABLE Operativo.TrabajadorXServicio
+(
+	idServicio  BIGINT NOT NULL,
+	idTrabajador BIGINT NOT NULL,
+	subtotalTrabajo  MONEY NOT NULL
+
+	CONSTRAINT FK_SERVICIO2 FOREIGN KEY (idServicio) 
+	REFERENCES Operativo.Servicio(idServicio), 
+	CONSTRAINT FK_TRABAJADOR2  FOREIGN KEY (idTrabajador) 
+	REFERENCES Operativo.Trabajador(idTrabajador)
+)
+
+CREATE RULE RL_TIPO_MATERIAL AS @TIPO IN ('Plomeria', 'Reconstruccion', 'Electricidad')
+EXEC sp_bindrule 'RL_TIPO_MATERIAL', 'Operativo.Material.tipoMaterial'
+
+CREATE TRIGGER TGR_DURACION
+ON Operativo.Servicio
+AFTER INSERT
+AS
+BEGIN
+    DECLARE @fechaInicio DATE;
+    DECLARE @fechaFinal DATE;
+    DECLARE @duracion INT;
+
+    SELECT @fechaInicio = fechaInicio, @fechaFinal = fechaFinal 
+    FROM inserted;
+
+    SET @duracion = DATEDIFF(DAY, @fechaInicio, @fechaFinal);
+
+    UPDATE Operativo.Servicio
+    SET duracion = @duracion
+    WHERE idServicio IN (SELECT idServicio FROM inserted);
+END;
+
+CREATE TRIGGER TGR_COSTOFINAL_MATERIAL
+ON Operativo.MaterialXServicio
+AFTER INSERT
+AS
+BEGIN
+    DECLARE @idServicio BIGINT;
+    DECLARE @subtotalMaterial DECIMAL(18, 2);
+    DECLARE @subtotalTrabajo DECIMAL(18, 2) = 0;
+    DECLARE @costoFinal DECIMAL(18, 2);
+
+    SELECT @idServicio = idServicio, @subtotalMaterial = subtotalMaterial FROM inserted;
+
+    SELECT @subtotalTrabajo = ISNULL(SUM(subtotalTrabajo), 0) FROM Operativo.TrabajadorXServicio WHERE idServicio = @idServicio;
+
+    SET @costoFinal = @subtotalMaterial + @subtotalTrabajo;
+
+    UPDATE Operativo.Servicio SET costoFinal = @costoFinal WHERE idServicio = @idServicio;
+END;
+
+CREATE TRIGGER TGR_COSTOFINAL_TRABAJADOR
+ON Operativo.TrabajadorXServicio
+AFTER INSERT
+AS
+BEGIN
+    DECLARE @idServicio BIGINT;
+    DECLARE @subtotalMaterial DECIMAL(18, 2) = 0;
+    DECLARE @subtotalTrabajo DECIMAL(18, 2);
+    DECLARE @costoFinal DECIMAL(18, 2);
+
+    SELECT @idServicio = idServicio, @subtotalTrabajo = subtotalTrabajo FROM inserted;
+
+    SELECT @subtotalMaterial = ISNULL(SUM(subtotalMaterial), 0) FROM Operativo.MaterialXServicio WHERE idServicio = @idServicio; 
+	SET @costoFinal = @subtotalMaterial + @subtotalTrabajo;
+
+    UPDATE Operativo.Servicio SET costoFinal = @costoFinal WHERE idServicio = @idServicio;
+END;
