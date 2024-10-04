@@ -198,3 +198,39 @@ BEGIN
 
     UPDATE Operativo.Servicio SET costoFinal = @costoFinal WHERE idServicio = @idServicio;
 END;
+CREATE TRIGGER TGR_TOTALCOMPRA
+ON Comercial.Compra
+AFTER INSERT
+AS
+	DECLARE @idCompra BIGINT;
+	DECLARE @subtotal DECIMAL;
+	DECLARE @totalCompra DECIMAL;
+BEGIN
+	SELECT @idCompra = idCompra FROM inserted;
+	SELECT @subtotal = COUNT(*) FROM Comercial.DetalleCompra WHERE idCompra = @idCompra
+	UPDATE Comercial.Compra SET totalCompra = @totalCompra WHERE idCompra = @idCompra 
+END;
+
+INSERT INTO Comercial.DetalleCompra ()
+VALUES (1,1,4,5)
+
+CREATE TRIGGER TGR_SubtotalCompra
+ON Comercial.DetalleCompra
+AFTER INSERT
+AS
+	DECLARE @idCompra BIGINT;
+	DECLARE @idMaterial BIGINT;
+	DECLARE @subtotal DECIMAL;
+	DECLARE @cantidad int;
+	DECLARE @precioMaterial DECIMAL;
+BEGIN
+	SELECT @idCompra = idCompra FROM inserted;
+	SELECT @cantidad = cantidad FROM inserted;
+
+	SET  @precioMaterial = (SELECT precioMaterial From Operativo.Material Inner join Comercial.DetalleCompra  ON Operativo.Material.idMaterial = @idMaterial WHERE Comercial.DetalleCompra.IdMaterial = Operativo.Material.idMaterial and @idCompra = @idCompra)
+	PRINT  @precioMaterial
+
+	SELECT @precioMaterial = precioMaterial;
+	SELECT @subtotal = COUNT(*) FROM Comercial.Compra WHERE idCompra = @idCompra
+	UPDATE Comercial.Compra SET totalCompra = @totalCompra WHERE idCompra = @idCompra 
+END
